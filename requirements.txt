@@ -3,3 +3,5 @@ uvicorn
 requests
 pymongo
 python-dotenv
+transformers
+torch

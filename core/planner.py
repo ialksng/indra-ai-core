@@ -1,29 +1,26 @@
-def plan_actions(message: str):
+def create_plan(message: str):
     msg = message.lower()
-
     actions = []
 
-    # navigation
-    if "open" in msg and "document" in msg:
-        actions.append({
-            "action": "OPEN_PAGE",
-            "target": "documents"
-        })
-
-    # settings
-    if "go to settings" in msg:
+    if "open settings" in msg:
         actions.append({
             "action": "OPEN_PAGE",
             "target": "settings"
         })
 
-    # fill form example
+    if "open documents" in msg:
+        actions.append({
+            "action": "OPEN_PAGE",
+            "target": "documents"
+        })
+
     if "change my name to" in msg:
         name = msg.split("to")[-1].strip()
-        actions.append({
-            "action": "FILL_INPUT",
-            "field": "name",
-            "value": name
-        })
+
+        actions.extend([
+            {"action": "OPEN_PAGE", "target": "settings"},
+            {"action": "FILL_INPUT", "field": "name", "value": name},
+            {"action": "SUBMIT_FORM"}
+        ])
 
     return actions

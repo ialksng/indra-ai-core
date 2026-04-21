@@ -1,20 +1,19 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_NAME = "sshleifer/tiny-gpt2"
 
-tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
-model = AutoModelForCausalLM.from_pretrained("distilgpt2").to(device)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 
-def local_generate(prompt):
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+def generate_local(prompt):
+    inputs = tokenizer.encode(prompt, return_tensors="pt")
 
     outputs = model.generate(
-        **inputs,
-        max_new_tokens=100,
-        temperature=0.7,
-        top_p=0.9,
-        do_sample=True
+        inputs,
+        max_length=100,
+        do_sample=True,
+        temperature=0.7
     )
 
     return tokenizer.decode(outputs[0], skip_special_tokens=True)

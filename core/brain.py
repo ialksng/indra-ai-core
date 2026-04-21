@@ -1,30 +1,24 @@
-from modules.memory.store import search_memory
-from modules.llm.fallback import generate_with_fallback
-from core.router import is_complex
-from core.planner import plan_actions
+from modules.llm.hf_client import generate_text
+from core.planner import create_plan
+from core.lite import lite_response
 
-def chat(user_id, message):
-    memory = search_memory(user_id, message)
-    context = "\n".join(memory)
+def chat(user_id, message, mode="lite", agent=False):
 
-    prompt = f"""
-You are Indra, a powerful personal AI assistant.
+    if mode == "lite":
+        response = lite_response(message)
 
-User memory:
-{context}
+    elif mode == "smart":
+        response = generate_text(message)
 
-User: {message}
-Assistant:
-"""
+    elif mode == "ultra":
+        response = generate_text(message)
 
-    use_external = is_complex(message)
+    else:
+        response = "Invalid mode"
 
-    output = generate_with_fallback(prompt, use_external)
-
-    response = output.split("Assistant:")[-1].strip()
+    actions = create_plan(message) if agent else []
 
     return {
-        "type": "chat",
         "message": response,
-        "actions": plan_actions(message)
+        "actions": actions
     }

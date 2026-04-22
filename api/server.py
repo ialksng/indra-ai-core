@@ -1,14 +1,17 @@
-import asyncio
 import os
 import uuid
+import requests
+
 from fastapi import FastAPI, WebSocket, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from faster_whisper import WhisperModel
-from elevenlabs import generate, stream
-import requests
+from elevenlabs.client import ElevenLabs
 
+# =========================
+# 🚀 APP
+# =========================
 app = FastAPI()
 
 app.add_middleware(
@@ -20,12 +23,17 @@ app.add_middleware(
 )
 
 # =========================
-# 🔊 MODELS
+# 🔑 ENV
 # =========================
-whisper = WhisperModel("base", compute_type="int8")
-
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 ELEVEN_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+
+eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY)
+
+# =========================
+# 🎤 MODEL (LIGHT for Render)
+# =========================
+whisper = WhisperModel("tiny", compute_type="int8")
 
 # =========================
 # 🧠 AI TEXT
@@ -48,6 +56,10 @@ def generate_ai(prompt):
             timeout=20
         )
 
+        if res.status_code != 200:
+            print("❌ GROQ ERROR:", res.text)
+            return "AI unavailable"
+
         return res.json()["choices"][0]["message"]["content"]
 
     except Exception as e:
@@ -61,28 +73,38 @@ def transcribe(audio_bytes):
     try:
         segments, _ = whisper.transcribe(audio_bytes)
         return " ".join([s.text for s in segments])
-    except:
+    except Exception as e:
+        print("WHISPER ERROR:", e)
         return ""
 
 # =========================
-# 🔊 TTS STREAM
+# 🔊 TTS (LATEST ELEVENLABS)
 # =========================
-def tts_stream(text):
-    audio_stream = generate(
-        text=text,
-        voice="Rachel",
-        model="eleven_monolingual_v1",
-        stream=True
-    )
-    for chunk in audio_stream:
-        yield chunk
+def generate_tts(text):
+    if not ELEVEN_API_KEY:
+        print("❌ ELEVENLABS_API_KEY missing")
+        return None
+
+    try:
+        audio_stream = eleven_client.text_to_speech.convert(
+            voice_id="21m00Tcm4TlvDq8ikWAM",
+            model_id="eleven_monolingual_v1",
+            text=text
+        )
+
+        audio_bytes = b"".join(audio_stream)
+        return audio_bytes
+
+    except Exception as e:
+        print("❌ TTS ERROR:", e)
+        return None
 
 # =========================
 # 🌐 ROOT
 # =========================
 @app.get("/")
 def root():
-    return {"status": "Indra streaming AI running"}
+    return {"status": "Indra AI running"}
 
 # =========================
 # 🎤 WEBSOCKET STREAM
@@ -130,19 +152,18 @@ async def voice_ws(ws: WebSocket):
                     "text": response
                 })
 
-                # 🔊 STREAM AUDIO
+                # 🔊 AUDIO (NON-STREAMED SAFE)
                 speaking = True
-                for chunk in tts_stream(response):
-                    if not speaking:
-                        break
+                audio = generate_tts(response)
 
-                    await ws.send_bytes(chunk)
+                if audio and speaking:
+                    await ws.send_bytes(audio)
 
     except Exception as e:
         print("WS closed:", e)
 
 # =========================
-# 🎤 FALLBACK (OLD /voice)
+# 🎤 FALLBACK
 # =========================
 @app.post("/voice")
 async def voice(file: UploadFile = File(...)):
@@ -154,14 +175,11 @@ async def voice(file: UploadFile = File(...)):
     filename = f"{uuid.uuid4()}.mp3"
     filepath = f"/tmp/{filename}"
 
-    audio = generate(
-        text=response,
-        voice="Rachel",
-        model="eleven_monolingual_v1"
-    )
+    audio = generate_tts(response)
 
-    with open(filepath, "wb") as f:
-        f.write(audio)
+    if audio:
+        with open(filepath, "wb") as f:
+            f.write(audio)
 
     return {
         "input_text": text,
@@ -169,6 +187,9 @@ async def voice(file: UploadFile = File(...)):
         "audio_url": f"/audio/{filename}"
     }
 
+# =========================
+# 🔊 AUDIO SERVE
+# =========================
 @app.get("/audio/{filename}")
 def get_audio(filename: str):
     return FileResponse(f"/tmp/{filename}")

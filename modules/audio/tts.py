@@ -1,16 +1,32 @@
-from gtts import gTTS
 import os
-import uuid
+from elevenlabs.client import ElevenLabs
 
-def text_to_speech(text):
+ELEVEN_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+
+# initialize once
+eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY) if ELEVEN_API_KEY else None
+
+
+def generate_tts(text):
+    if not ELEVEN_API_KEY or not eleven_client:
+        print("❌ ELEVENLABS_API_KEY missing or client not initialized")
+        return None
+
+    if not text or text.strip() == "":
+        return None
+
     try:
-        filename = f"/tmp/{uuid.uuid4()}.mp3"
+        audio_stream = eleven_client.text_to_speech.convert(
+            voice_id="21m00Tcm4TlvDq8ikWAM",  # Rachel
+            model_id="eleven_monolingual_v1",
+            text=text
+        )
 
-        tts = gTTS(text=text, lang="en")
-        tts.save(filename)
+        # convert stream → bytes safely
+        audio_bytes = b"".join(chunk for chunk in audio_stream if chunk)
 
-        return filename
+        return audio_bytes
 
     except Exception as e:
-        print("❌ TTS ERROR:", e)
+        print("❌ TTS ERROR:", str(e))
         return None

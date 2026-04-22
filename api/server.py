@@ -38,15 +38,9 @@ def transcribe(audio_bytes):
     try:
         res = requests.post(
             "https://api.groq.com/openai/v1/audio/transcriptions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}"
-            },
-            files={
-                "file": ("audio.webm", audio_bytes)
-            },
-            data={
-                "model": "whisper-large-v3"
-            },
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            files={"file": ("audio.webm", audio_bytes)},
+            data={"model": "whisper-large-v3"},
             timeout=15
         )
 
@@ -61,7 +55,7 @@ def transcribe(audio_bytes):
         return ""
 
 # =========================
-# 🧠 AI TEXT (GROQ)
+# 🧠 AI TEXT (GROQ FIXED)
 # =========================
 def generate_ai(prompt):
     if not GROQ_API_KEY:
@@ -75,7 +69,7 @@ def generate_ai(prompt):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-8b-8192",  # 🔥 faster + stable
+                "model": "llama-3.1-8b-instant",  # ✅ FIXED MODEL
                 "messages": [
                     {"role": "system", "content": "You are Indra AI."},
                     {"role": "user", "content": prompt}
@@ -97,7 +91,7 @@ def generate_ai(prompt):
         return "AI unavailable"
 
 # =========================
-# 🔊 TTS (ElevenLabs)
+# 🔊 TTS (SAFE)
 # =========================
 def generate_tts(text):
     if not ELEVEN_API_KEY or not eleven_client:
@@ -128,6 +122,31 @@ def ping():
     return {"status": "alive"}
 
 # =========================
+# 🔥 FIXED CHAT (IMPORTANT)
+# =========================
+@app.post("/chat")
+async def chat(req: dict):
+    try:
+        message = req.get("message", "")
+
+        if not message:
+            return {"message": "Message required", "actions": []}
+
+        response = generate_ai(message)
+
+        return {
+            "message": str(response),
+            "actions": []
+        }
+
+    except Exception as e:
+        print("❌ CHAT ERROR:", e)
+        return {
+            "message": "AI error",
+            "actions": []
+        }
+
+# =========================
 # 🎤 WEBSOCKET VOICE
 # =========================
 @app.websocket("/ws/voice")
@@ -148,7 +167,6 @@ async def voice_ws(ws: WebSocket):
             if "bytes" in data:
                 buffer += data["bytes"]
 
-            # 🔥 smaller buffer → faster response
             if len(buffer) > 16000:
                 text = transcribe(buffer)
                 buffer = b""
@@ -156,30 +174,18 @@ async def voice_ws(ws: WebSocket):
                 if not text:
                     continue
 
-                print("🎤 Heard:", text)
-
-                # 🔥 wake word
                 if "indra" not in text.lower():
                     continue
 
-                await ws.send_json({
-                    "type": "transcript",
-                    "text": text
-                })
+                await ws.send_json({"type": "transcript", "text": text})
 
                 response = generate_ai(text)
 
-                await ws.send_json({
-                    "type": "response",
-                    "text": response
-                })
+                await ws.send_json({"type": "response", "text": response})
 
                 speaking = True
 
-                # 🔥 prevent long TTS delay
-                short_response = response[:500]
-
-                audio = generate_tts(short_response)
+                audio = generate_tts(response[:500])
 
                 if audio and speaking:
                     await ws.send_bytes(audio)

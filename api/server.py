@@ -5,17 +5,15 @@ import requests
 from fastapi import FastAPI, WebSocket, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-
-from faster_whisper import WhisperModel
 from elevenlabs.client import ElevenLabs
 
 # =========================
-# 🔑 ENV SETUP
+# 🔑 ENV
 # =========================
-os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN", "")
-
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 ELEVEN_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+
+eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY) if ELEVEN_API_KEY else None
 
 # =========================
 # 🚀 APP
@@ -31,11 +29,36 @@ app.add_middleware(
 )
 
 # =========================
-# 🎤 MODELS (RENDER SAFE)
+# 🎤 TRANSCRIBE (GROQ STT)
 # =========================
-whisper = WhisperModel("tiny", compute_type="int8")
+def transcribe(audio_bytes):
+    if not GROQ_API_KEY:
+        return ""
 
-eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY) if ELEVEN_API_KEY else None
+    try:
+        res = requests.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}"
+            },
+            files={
+                "file": ("audio.webm", audio_bytes)
+            },
+            data={
+                "model": "whisper-large-v3"
+            },
+            timeout=20
+        )
+
+        if res.status_code != 200:
+            print("❌ STT ERROR:", res.text)
+            return ""
+
+        return res.json().get("text", "")
+
+    except Exception as e:
+        print("❌ STT EXCEPTION:", e)
+        return ""
 
 # =========================
 # 🧠 AI TEXT (GROQ)
@@ -68,29 +91,14 @@ def generate_ai(prompt):
         return res.json()["choices"][0]["message"]["content"]
 
     except Exception as e:
-        print("AI ERROR:", e)
+        print("❌ AI ERROR:", e)
         return "AI unavailable"
 
 # =========================
-# 🎤 TRANSCRIBE
-# =========================
-def transcribe(audio_bytes):
-    try:
-        segments, _ = whisper.transcribe(audio_bytes)
-        return " ".join([s.text for s in segments])
-    except Exception as e:
-        print("WHISPER ERROR:", e)
-        return ""
-
-# =========================
-# 🔊 TTS (ELEVENLABS)
+# 🔊 TTS (ElevenLabs)
 # =========================
 def generate_tts(text):
     if not ELEVEN_API_KEY or not eleven_client:
-        print("❌ ELEVENLABS_API_KEY missing")
-        return None
-
-    if not text or text.strip() == "":
         return None
 
     try:
@@ -100,11 +108,10 @@ def generate_tts(text):
             text=text
         )
 
-        audio_bytes = b"".join(chunk for chunk in audio_stream if chunk)
-        return audio_bytes
+        return b"".join(chunk for chunk in audio_stream if chunk)
 
     except Exception as e:
-        print("❌ TTS ERROR:", str(e))
+        print("❌ TTS ERROR:", e)
         return None
 
 # =========================
@@ -132,7 +139,6 @@ async def voice_ws(ws: WebSocket):
         while True:
             data = await ws.receive()
 
-            # 🔥 INTERRUPT
             if "text" in data and data["text"] == "interrupt":
                 speaking = False
                 continue
@@ -140,7 +146,6 @@ async def voice_ws(ws: WebSocket):
             if "bytes" in data:
                 buffer += data["bytes"]
 
-            # process chunk
             if len(buffer) > 32000:
                 text = transcribe(buffer)
                 buffer = b""
@@ -148,7 +153,6 @@ async def voice_ws(ws: WebSocket):
                 if not text:
                     continue
 
-                # 🔥 WAKE WORD
                 if "indra" not in text.lower():
                     continue
 
@@ -164,7 +168,6 @@ async def voice_ws(ws: WebSocket):
                     "text": response
                 })
 
-                # 🔊 AUDIO
                 speaking = True
                 audio = generate_tts(response)
 
@@ -175,7 +178,7 @@ async def voice_ws(ws: WebSocket):
         print("WS closed:", e)
 
 # =========================
-# 🎤 FALLBACK VOICE
+# 🎤 FALLBACK
 # =========================
 @app.post("/voice")
 async def voice(file: UploadFile = File(...)):
@@ -200,7 +203,7 @@ async def voice(file: UploadFile = File(...)):
     }
 
 # =========================
-# 🔊 AUDIO SERVE
+# 🔊 AUDIO
 # =========================
 @app.get("/audio/{filename}")
 def get_audio(filename: str):

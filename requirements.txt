@@ -4,8 +4,6 @@ requests
 pymongo
 python-dotenv
 transformers
-torch
 gTTS
 python-multipart
 elevenlabs>=1.0.0
-faster-whisper

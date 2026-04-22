@@ -10,6 +10,14 @@ from faster_whisper import WhisperModel
 from elevenlabs.client import ElevenLabs
 
 # =========================
+# 🔑 ENV SETUP
+# =========================
+os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN", "")
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+ELEVEN_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+
+# =========================
 # 🚀 APP
 # =========================
 app = FastAPI()
@@ -23,22 +31,19 @@ app.add_middleware(
 )
 
 # =========================
-# 🔑 ENV
-# =========================
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-ELEVEN_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-
-eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY)
-
-# =========================
-# 🎤 MODEL (LIGHT for Render)
+# 🎤 MODELS (RENDER SAFE)
 # =========================
 whisper = WhisperModel("tiny", compute_type="int8")
 
+eleven_client = ElevenLabs(api_key=ELEVEN_API_KEY) if ELEVEN_API_KEY else None
+
 # =========================
-# 🧠 AI TEXT
+# 🧠 AI TEXT (GROQ)
 # =========================
 def generate_ai(prompt):
+    if not GROQ_API_KEY:
+        return "AI unavailable"
+
     try:
         res = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -78,11 +83,14 @@ def transcribe(audio_bytes):
         return ""
 
 # =========================
-# 🔊 TTS (LATEST ELEVENLABS)
+# 🔊 TTS (ELEVENLABS)
 # =========================
 def generate_tts(text):
-    if not ELEVEN_API_KEY:
+    if not ELEVEN_API_KEY or not eleven_client:
         print("❌ ELEVENLABS_API_KEY missing")
+        return None
+
+    if not text or text.strip() == "":
         return None
 
     try:
@@ -92,11 +100,11 @@ def generate_tts(text):
             text=text
         )
 
-        audio_bytes = b"".join(audio_stream)
+        audio_bytes = b"".join(chunk for chunk in audio_stream if chunk)
         return audio_bytes
 
     except Exception as e:
-        print("❌ TTS ERROR:", e)
+        print("❌ TTS ERROR:", str(e))
         return None
 
 # =========================
@@ -106,8 +114,12 @@ def generate_tts(text):
 def root():
     return {"status": "Indra AI running"}
 
+@app.get("/ping")
+def ping():
+    return {"status": "alive"}
+
 # =========================
-# 🎤 WEBSOCKET STREAM
+# 🎤 WEBSOCKET VOICE
 # =========================
 @app.websocket("/ws/voice")
 async def voice_ws(ws: WebSocket):
@@ -152,7 +164,7 @@ async def voice_ws(ws: WebSocket):
                     "text": response
                 })
 
-                # 🔊 AUDIO (NON-STREAMED SAFE)
+                # 🔊 AUDIO
                 speaking = True
                 audio = generate_tts(response)
 
@@ -163,7 +175,7 @@ async def voice_ws(ws: WebSocket):
         print("WS closed:", e)
 
 # =========================
-# 🎤 FALLBACK
+# 🎤 FALLBACK VOICE
 # =========================
 @app.post("/voice")
 async def voice(file: UploadFile = File(...)):

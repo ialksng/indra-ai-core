@@ -47,7 +47,7 @@ def transcribe(audio_bytes):
             data={
                 "model": "whisper-large-v3"
             },
-            timeout=20
+            timeout=15
         )
 
         if res.status_code != 200:
@@ -75,20 +75,22 @@ def generate_ai(prompt):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-70b-8192",
+                "model": "llama3-8b-8192",  # 🔥 faster + stable
                 "messages": [
                     {"role": "system", "content": "You are Indra AI."},
                     {"role": "user", "content": prompt}
                 ]
             },
-            timeout=20
+            timeout=15
         )
 
         if res.status_code != 200:
             print("❌ GROQ ERROR:", res.text)
             return "AI unavailable"
 
-        return res.json()["choices"][0]["message"]["content"]
+        data = res.json()
+
+        return data.get("choices", [{}])[0].get("message", {}).get("content", "AI unavailable")
 
     except Exception as e:
         print("❌ AI ERROR:", e)
@@ -146,13 +148,17 @@ async def voice_ws(ws: WebSocket):
             if "bytes" in data:
                 buffer += data["bytes"]
 
-            if len(buffer) > 32000:
+            # 🔥 smaller buffer → faster response
+            if len(buffer) > 16000:
                 text = transcribe(buffer)
                 buffer = b""
 
                 if not text:
                     continue
 
+                print("🎤 Heard:", text)
+
+                # 🔥 wake word
                 if "indra" not in text.lower():
                     continue
 
@@ -169,7 +175,11 @@ async def voice_ws(ws: WebSocket):
                 })
 
                 speaking = True
-                audio = generate_tts(response)
+
+                # 🔥 prevent long TTS delay
+                short_response = response[:500]
+
+                audio = generate_tts(short_response)
 
                 if audio and speaking:
                     await ws.send_bytes(audio)
@@ -190,7 +200,7 @@ async def voice(file: UploadFile = File(...)):
     filename = f"{uuid.uuid4()}.mp3"
     filepath = f"/tmp/{filename}"
 
-    audio = generate_tts(response)
+    audio = generate_tts(response[:500])
 
     if audio:
         with open(filepath, "wb") as f:

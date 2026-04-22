@@ -5,6 +5,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 def groq_generate(prompt):
     if not GROQ_API_KEY:
+        print("❌ GROQ_API_KEY missing")
         return None
 
     try:
@@ -24,10 +25,18 @@ def groq_generate(prompt):
             timeout=15
         )
 
+        if res.status_code != 200:
+            print("❌ GROQ STATUS:", res.status_code, res.text)
+            return None
+
         data = res.json()
+
+        if "choices" not in data:
+            print("❌ GROQ BAD RESPONSE:", data)
+            return None
 
         return data["choices"][0]["message"]["content"]
 
     except Exception as e:
-        print("GROQ ERROR:", e)
+        print("❌ GROQ ERROR:", e)
         return None

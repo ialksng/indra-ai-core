@@ -5,6 +5,7 @@ import uuid
 import requests
 import io
 import wave
+from typing import Optional  # ✅ ADDED for Python 3.9 compatibility
 
 from fastapi import FastAPI, WebSocket, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,9 +42,9 @@ app.add_middleware(
 # =========================
 class ChatRequest(BaseModel):
     message: str
-    user_id: str | None = None
-    mode: str | None = None
-    agent: str | None = None
+    user_id: Optional[str] = None  # ✅ FIXED syntax for broader Python support
+    mode: Optional[str] = None     # ✅ FIXED
+    agent: Optional[str] = None    # ✅ FIXED
 
 # =========================
 # 🛠️ HELPER: WAV
